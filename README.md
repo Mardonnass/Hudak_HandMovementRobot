@@ -1,8 +1,6 @@
 # HandMovementRobot 
 # Robot Project – README
 
-# Robot Project – README
-
 ## Overview
 
 Tento repozitár obsahuje kódy pre nášho robota, ktoré pokrývajú rôzne aspekty jeho fungovania – od základného ovládania až po pokročilejšie spracovanie dát a rozhodovanie. Projekt slúži ako experimentálne aj praktické riešenie pre vývoj autonómneho (alebo semi-autonómneho) systému.
