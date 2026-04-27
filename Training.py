@@ -5,71 +5,79 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.utils import shuffle
 import pickle
+from collections import Counter
 
 # -------------------------------
 # 1. Load and preprocess CSV
 # -------------------------------
-csv_file = 'PrvyREAL.csv'  # CSV format: x0,y0,...,x20,y20,label
+csv_file = 'Try1.csv'
 df = pd.read_csv(csv_file)
 
 # Shuffle dataset
 df = shuffle(df, random_state=42)
 
 # Split features and labels
-X = df.drop(columns=["label"]).values  # landmarks (42 values)
-print(X.shape)
-y = df["label"].values
-print(y)   
-
-# -------------------------------
-# 1. Load and preprocess CSV
-# -------------------------------
-csv_file = 'PrvyREAL.csv'
-df = pd.read_csv(csv_file)
-
-# Split features and labels
 X = df.drop(columns=["label"]).values
 y = df["label"].values
 
-# Normalize each row (each sample)
+print("X shape:", X.shape)
+print("Labels:", np.unique(y))
+
+# -------------------------------
+# 2. Normalize EACH HAND separately
+# -------------------------------
 def normalize_landmarks(landmarks):
-    landmarks = landmarks.reshape(-1, 3)  # 21 landmarks × 2 hands = 42 points total
-    # You can decide whether to normalize each hand separately.
-    # For simplicity, normalize whole vector relative to first landmark (wrist)
-    base = landmarks[0]
-    landmarks -= base
-    scale = np.linalg.norm(landmarks[9] - landmarks[0])  # wrist → middle finger base
-    if scale > 0:
-        landmarks /= scale
-    return landmarks.flatten()
+    landmarks = landmarks.reshape(2, 21, 3)  # 2 hands
+
+    normalized = []
+
+    for hand in landmarks:
+        base = hand[0]  # wrist
+        hand = hand - base
+
+        scale = np.linalg.norm(hand[9] - hand[0])  # wrist → middle finger base
+        if scale > 0:
+            hand = hand / scale
+
+        normalized.append(hand.flatten())
+
+    return np.concatenate(normalized)
 
 X = np.array([normalize_landmarks(row) for row in X])
 
-# Encode labels (TEXT → NUMBER)
+# -------------------------------
+# 3. Encode labels
+# -------------------------------
 le = LabelEncoder()
 y = le.fit_transform(y)
-print(np.unique(y))
-# Save encoder for webcam inference
-with open("label_encoder.pkl", "wb") as f:
+
+with open("ENKODIK.pkl", "wb") as f:
     pickle.dump(le, f)
 
-print("Saved label_encoder.pkl")
-
-# Train/test split
+print("Label encoder saved!")
+print(Counter(y))
+# -------------------------------
+# 4. Train/test split
+# -------------------------------
 X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
+    X, y, test_size=0.2 , random_state=42
 )
 
 # -------------------------------
-# 2. Build TensorFlow model
+# 5. Build improved model
 # -------------------------------
-def build_model(input_shape, num_classes, hidden_units=256, dropout_rate=0.2):
+def build_model(input_shape, num_classes):
     model = tf.keras.Sequential([
         tf.keras.layers.Input(shape=(input_shape,)),
-        tf.keras.layers.Dense(hidden_units, activation='relu'),
-        tf.keras.layers.Dropout(dropout_rate),
-        tf.keras.layers.Dense(hidden_units, activation='relu'),
-        tf.keras.layers.Dropout(dropout_rate),
+
+        tf.keras.layers.Dense(64, activation='relu'),
+        tf.keras.layers.BatchNormalization(),
+        tf.keras.layers.Dropout(0.4),
+
+        tf.keras.layers.Dense(64, activation='relu'),
+        tf.keras.layers.BatchNormalization(),
+        tf.keras.layers.Dropout(0.3),
+
         tf.keras.layers.Dense(num_classes, activation='softmax')
     ])
     return model
@@ -80,38 +88,48 @@ num_classes = len(np.unique(y))
 model = build_model(input_shape, num_classes)
 
 # -------------------------------
-# 3. Compile model
+# 6. Compile model
 # -------------------------------
-learning_rate = 0.001
-batch_size = 128
-epochs = 500
-
 model.compile(
-    optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
+    optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001),
     loss='sparse_categorical_crossentropy',
     metrics=['accuracy']
 )
 
 # -------------------------------
-# 4. Train the model
+# 7. Early stopping (IMPORTANT)
+# -------------------------------
+early_stop = tf.keras.callbacks.EarlyStopping(
+    monitor='val_loss',
+    patience=3,
+    restore_best_weights=True
+)
+
+# -------------------------------
+# 8. Train model
 # -------------------------------
 history = model.fit(
     X_train, y_train,
     validation_data=(X_test, y_test),
-    batch_size=batch_size,
-    epochs=epochs
+    batch_size=64,
+    epochs=40,
+    callbacks=[early_stop]
 )
 
 # -------------------------------
-# 5. Save the trained model
+# 9. Save model
 # -------------------------------
-model.save("MojKlasfir.h5")
+model.save("MODEL2.keras")
 print("Model saved successfully!")
 
 # -------------------------------
-# 6. Inference helper function
+# 10. Inference helper
 # -------------------------------
 def predict_gesture(landmarks):
+    landmarks = normalize_landmarks(landmarks)
     landmarks = np.array(landmarks).reshape(1, -1)
-    pred_class = np.argmax(model.predict(landmarks))
+
+    pred = model.predict(landmarks, verbose=0)
+    pred_class = np.argmax(pred)
+
     return le.inverse_transform([pred_class])[0]
